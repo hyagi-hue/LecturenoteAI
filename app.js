@@ -721,3 +721,21 @@ function getCategoryInfo(category) {
   };
   return map[category] || { label: `🏷️ ${category}`, className: 'cat-default' };
 }
+
+// ============================================================
+// Global Exports — expose functions for inline HTML handlers
+// (onclick="...", onchange="...", etc.)
+// ============================================================
+window.openSettings = openSettings;
+window.closeSettings = closeSettings;
+window.handleFileSelect = handleFileSelect;
+window.clearFile = clearFile;
+window.handleExecute = handleExecute;
+window.switchTab = switchTab;
+window.copyCurrentTab = copyCurrentTab;
+window.downloadNote = downloadNote;
+window.hideError = hideError;
+window.toggleKeyVisibility = toggleKeyVisibility;
+window.saveApiKey = saveApiKey;
+window.deleteApiKey = deleteApiKey;
+window.testApiConnection = testApiConnection;
