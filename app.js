@@ -39,6 +39,12 @@ document.addEventListener('DOMContentLoaded', () => {
   updateApiKeyStatus();
   setupDragAndDrop();
 
+  // Attach settings button listener
+  const settingsBtn = document.getElementById('settings-btn');
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', openSettings);
+  }
+
   // Set default date to today
   const dateInput = document.getElementById('input-date');
   if (dateInput) {
