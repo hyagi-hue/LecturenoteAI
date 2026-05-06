@@ -1,20 +1,17 @@
 /**
  * 講義音声ノートAI — メインアプリケーションロジック
  * Phase 3: API接続 & 文字起こし実装
+ * ※ インラインハンドラー不使用 — 全イベントは addEventListener で制御
  */
 
 // ============================================================
 // Constants
 // ============================================================
-const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
+const MAX_FILE_SIZE = 15 * 1024 * 1024;
 const ALLOWED_TYPES = [
-  'audio/wav', 'audio/x-wav',
-  'audio/mp3', 'audio/mpeg',
-  'audio/aiff', 'audio/x-aiff',
-  'audio/aac', 'audio/x-aac',
-  'audio/ogg',
-  'audio/flac', 'audio/x-flac',
-  'audio/mp4', 'audio/x-m4a',
+  'audio/wav', 'audio/x-wav', 'audio/mp3', 'audio/mpeg',
+  'audio/aiff', 'audio/x-aiff', 'audio/aac', 'audio/x-aac',
+  'audio/ogg', 'audio/flac', 'audio/x-flac', 'audio/mp4', 'audio/x-m4a',
 ];
 const STORAGE_KEY = 'gemini_api_key';
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -27,13 +24,13 @@ const state = {
   selectedFile: null,
   currentTab: 'transcript',
   isProcessing: false,
-  result: null, // { transcript, summary, keypoints, category }
+  result: null,
   lectureDate: '',
   sessionNumber: '',
 };
 
 // ============================================================
-// Init — all event binding via addEventListener (no inline handlers)
+// Init — all event binding via addEventListener
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
   updateApiKeyStatus();
@@ -92,44 +89,28 @@ document.addEventListener('DOMContentLoaded', () => {
 // Gemini API Module
 // ============================================================
 
-/**
- * ステップ①: テキストでの開通確認（Hello World）
- * ブラウザのコンソールから testApiConnection() で実行可能。
- * 設定画面の「接続テスト」ボタンからも呼び出される。
- */
 async function testApiConnection() {
   const apiKey = getApiKey();
   if (!apiKey) {
-    console.error('[API Test] APIキーが未設定です');
     showError('APIキーが設定されていません。');
     return;
   }
-
   console.log('[API Test] 開通確認を開始...');
-  console.log(`[API Test] モデル: ${GEMINI_MODEL}`);
-
   try {
     const url = `${API_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
     const body = {
-      contents: [{
-        parts: [{ text: 'こんにちは。「API接続成功」と返答してください。' }]
-      }]
+      contents: [{ parts: [{ text: 'こんにちは。「API接続成功」と返答してください。' }] }]
     };
-
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
-      const msg = handleApiError(res.status, errData);
-      console.error(`[API Test] 失敗 (HTTP ${res.status}):`, msg);
-      showError(msg);
+      showError(handleApiError(res.status, errData));
       return;
     }
-
     const data = await res.json();
     const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || '(空の応答)';
     console.log('[API Test] ✅ 成功！応答:', reply);
@@ -141,17 +122,10 @@ async function testApiConnection() {
   }
 }
 
-/**
- * ステップ②: 音声ファイルを Base64 で送信し文字起こしを取得
- */
 async function sendAudioToGemini(file) {
   const apiKey = getApiKey();
   const url = `${API_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-
-  // ファイルを Base64 に変換
   const base64Data = await fileToBase64(file);
-
-  // MIME タイプの決定（file.type が空の場合は拡張子から推定）
   const mimeType = file.type || guessMimeType(file.name);
 
   // Gather contextual metadata for the prompt
@@ -170,12 +144,7 @@ async function sendAudioToGemini(file) {
   const body = {
     contents: [{
       parts: [
-        {
-          inlineData: {
-            mimeType: mimeType,
-            data: base64Data,
-          }
-        },
+        { inlineData: { mimeType: mimeType, data: base64Data } },
         {
           text: [
             'あなたは大学の講義音声を処理する優秀なアシスタントです。',
@@ -198,9 +167,7 @@ async function sendAudioToGemini(file) {
         }
       ]
     }],
-    generationConfig: {
-      responseMimeType: 'application/json',
-    }
+    generationConfig: { responseMimeType: 'application/json' }
   };
 
   const res = await fetch(url, {
@@ -216,24 +183,20 @@ async function sendAudioToGemini(file) {
 
   const data = await res.json();
   const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
   if (!rawText) {
     throw new Error('AIから空の応答が返されました。音声ファイルを確認してください。');
   }
 
-  // JSON パース
   try {
     const parsed = JSON.parse(rawText);
     const validCategories = ['ゼミ', '研究', '授業', '就活', 'インターン', '私生活'];
-    const category = validCategories.includes(parsed.category) ? parsed.category : '授業';
     return {
       transcript: parsed.transcript || '(文字起こしなし)',
       summary: parsed.summary || '(要約なし)',
       keypoints: Array.isArray(parsed.keypoints) ? parsed.keypoints : ['(要点なし)'],
-      category: category,
+      category: validCategories.includes(parsed.category) ? parsed.category : '授業',
     };
   } catch (e) {
-    // JSON パースに失敗した場合、テキスト全体を transcript として扱う
     console.warn('[API] JSONパース失敗。テキストをそのまま使用:', e);
     return {
       transcript: rawText,
@@ -244,48 +207,27 @@ async function sendAudioToGemini(file) {
   }
 }
 
-/**
- * API エラーのステータスコード別メッセージ生成
- */
 function handleApiError(status, errData) {
   const detail = errData?.error?.message || '';
   switch (status) {
-    case 400:
-      return `リクエストに問題がありました。音声ファイルが破損していないか確認してください。\n(${detail})`;
-    case 401:
-    case 403:
-      return 'APIキーが無効です。設定画面で正しいキーを再入力してください。';
-    case 404:
-      return `モデル "${GEMINI_MODEL}" が見つかりません。モデル名を確認してください。\n(${detail})`;
-    case 429:
-      return `APIの利用制限に達しました。しばらく時間をおいてから再試行してください。\n(${detail || 'Rate limit exceeded'})`;
-    case 500:
-    case 503:
-      return 'サーバーエラーが発生しました。しばらく時間をおいてから再試行してください。';
-    default:
-      return `APIエラーが発生しました (HTTP ${status})。\n${detail}`;
+    case 400: return `リクエストに問題がありました。音声ファイルが破損していないか確認してください。\n(${detail})`;
+    case 401: case 403: return 'APIキーが無効です。設定画面で正しいキーを再入力してください。';
+    case 404: return `モデル "${GEMINI_MODEL}" が見つかりません。モデル名を確認してください。\n(${detail})`;
+    case 429: return `APIの利用制限に達しました。しばらく時間をおいてから再試行してください。\n(${detail || 'Rate limit exceeded'})`;
+    case 500: case 503: return 'サーバーエラーが発生しました。しばらく時間をおいてから再試行してください。';
+    default: return `APIエラーが発生しました (HTTP ${status})。\n${detail}`;
   }
 }
 
-/**
- * File → Base64 文字列（data: プレフィックスなし）
- */
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => {
-      // "data:audio/mp3;base64,XXXX" → "XXXX"
-      const base64 = reader.result.split(',')[1];
-      resolve(base64);
-    };
+    reader.onload = () => resolve(reader.result.split(',')[1]);
     reader.onerror = () => reject(new Error('ファイルの読み込みに失敗しました。'));
     reader.readAsDataURL(file);
   });
 }
 
-/**
- * 拡張子から MIME タイプを推定
- */
 function guessMimeType(filename) {
   const ext = filename.split('.').pop().toLowerCase();
   const map = {
@@ -298,17 +240,12 @@ function guessMimeType(filename) {
 // ============================================================
 // API Key Management
 // ============================================================
-function getApiKey() {
-  return localStorage.getItem(STORAGE_KEY) || '';
-}
+function getApiKey() { return localStorage.getItem(STORAGE_KEY) || ''; }
 
 function saveApiKey() {
   const input = document.getElementById('input-api-key');
   const key = input.value.trim();
-  if (!key) {
-    showError('APIキーを入力してください。');
-    return;
-  }
+  if (!key) { showError('APIキーを入力してください。'); return; }
   localStorage.setItem(STORAGE_KEY, key);
   input.value = '';
   updateApiKeyStatus();
@@ -356,22 +293,17 @@ function closeSettings() {
 function handleFileSelect(event) {
   const file = event.target.files[0];
   if (!file) return;
-
-  // Validate type
   if (!ALLOWED_TYPES.includes(file.type) && !file.name.match(/\.(wav|mp3|aiff|aac|m4a|ogg|flac)$/i)) {
     showError('対応していないファイル形式です。WAV, MP3, AAC, OGG, FLAC, AIFF のいずれかを選択してください。');
     event.target.value = '';
     return;
   }
-
-  // Validate size
   if (file.size > MAX_FILE_SIZE) {
     const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
-    showError(`ファイルサイズが大きすぎます（${sizeMB}MB）。上限は15MBです。音声を圧縮するか、短い音声ファイルをお試しください。`);
+    showError(`ファイルサイズが大きすぎます（${sizeMB}MB）。上限は15MBです。`);
     event.target.value = '';
     return;
   }
-
   state.selectedFile = file;
   showFileInfo(file);
   updateExecuteButton();
@@ -396,16 +328,8 @@ function clearFile(event) {
 
 function setupDragAndDrop() {
   const zone = document.getElementById('file-drop-zone');
-
-  zone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    zone.classList.add('drag-over');
-  });
-
-  zone.addEventListener('dragleave', () => {
-    zone.classList.remove('drag-over');
-  });
-
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => { zone.classList.remove('drag-over'); });
   zone.addEventListener('drop', (e) => {
     e.preventDefault();
     zone.classList.remove('drag-over');
@@ -424,27 +348,13 @@ function setupDragAndDrop() {
 // Execute Button
 // ============================================================
 function updateExecuteButton() {
-  const btn = document.getElementById('btn-execute');
-  btn.disabled = !state.selectedFile;
+  document.getElementById('btn-execute').disabled = !state.selectedFile;
 }
 
 function handleExecute() {
-  // Validation
-  if (!getApiKey()) {
-    showError('APIキーが設定されていません。設定画面からキーを入力してください。');
-    openSettings();
-    return;
-  }
-  if (!state.selectedFile) {
-    showError('音声ファイルを選択してください。');
-    return;
-  }
-  // Re-check file size before sending
-  if (state.selectedFile.size > MAX_FILE_SIZE) {
-    showError('ファイルサイズが15MBを超えています。');
-    return;
-  }
-
+  if (!getApiKey()) { showError('APIキーが設定されていません。設定画面からキーを入力してください。'); openSettings(); return; }
+  if (!state.selectedFile) { showError('音声ファイルを選択してください。'); return; }
+  if (state.selectedFile.size > MAX_FILE_SIZE) { showError('ファイルサイズが15MBを超えています。'); return; }
   startProcessing();
 }
 
@@ -454,39 +364,23 @@ function handleExecute() {
 async function startProcessing() {
   state.isProcessing = true;
   const statusEl = document.getElementById('processing-status');
-
-  // Disable inputs
   document.getElementById('btn-execute').disabled = true;
   document.getElementById('input-lecture-name').disabled = true;
   document.getElementById('input-date').disabled = true;
   document.getElementById('input-session').disabled = true;
-
-  // Hide results, show processing
   document.getElementById('results-section').classList.add('hidden');
   document.getElementById('processing-section').classList.remove('hidden');
 
   try {
-    // Step 1: Read file
     statusEl.textContent = '音声ファイルを読み込み中...';
-
-    // Step 2: Send to API (status updates inside sendAudioToGemini would be complex,
-    // so we update right before the fetch)
     statusEl.textContent = 'Gemini API に送信中...（音声の長さにより数十秒かかることがあります）';
-
     const result = await sendAudioToGemini(state.selectedFile);
-
-    // Step 3: Process result
     statusEl.textContent = '応答を処理中...';
-
     finishProcessing(result);
-
   } catch (err) {
     console.error('[Processing] エラー:', err);
-    // Hide processing spinner
     document.getElementById('processing-section').classList.add('hidden');
     showError(err.message || '処理中にエラーが発生しました。');
-
-    // Re-enable inputs
     state.isProcessing = false;
     document.getElementById('btn-execute').disabled = false;
     document.getElementById('input-lecture-name').disabled = false;
@@ -500,28 +394,23 @@ function finishProcessing(result) {
   state.isProcessing = false;
   state.result = result;
 
-  // Capture metadata from inputs
   const lectureName = document.getElementById('input-lecture-name').value.trim();
   const lectureDate = document.getElementById('input-date').value;
   const sessionNumber = document.getElementById('input-session').value.trim();
   state.lectureDate = lectureDate;
   state.sessionNumber = sessionNumber;
 
-  // Re-enable inputs
   document.getElementById('btn-execute').disabled = false;
   document.getElementById('input-lecture-name').disabled = false;
   document.getElementById('input-date').disabled = false;
   document.getElementById('input-session').disabled = false;
   updateExecuteButton();
 
-  // Hide processing, show results
   document.getElementById('processing-section').classList.add('hidden');
-
-  // Populate result content
   document.getElementById('text-transcript').textContent = result.transcript;
   document.getElementById('text-summary').textContent = result.summary;
 
-  // Display category badge
+  // Category badge
   const categoryBadge = document.getElementById('category-badge');
   if (categoryBadge) {
     const catInfo = getCategoryInfo(result.category);
@@ -530,62 +419,50 @@ function finishProcessing(result) {
     categoryBadge.classList.remove('hidden');
   }
 
-  // Display metadata (Date, Session, Lecture)
+  // Metadata display
   const metadataEl = document.getElementById('result-metadata');
   if (metadataEl) {
     const metaDate = document.getElementById('meta-date');
     const metaSession = document.getElementById('meta-session');
     const metaLecture = document.getElementById('meta-lecture');
 
-    // Date — format as YYYY/MM/DD for display
     if (lectureDate) {
       metaDate.querySelector('.meta-value').textContent = lectureDate.replace(/-/g, '/');
       metaDate.classList.remove('hidden');
-    } else {
-      metaDate.classList.add('hidden');
-    }
+    } else { metaDate.classList.add('hidden'); }
 
-    // Session number
     if (sessionNumber) {
       metaSession.querySelector('.meta-value').textContent = sessionNumber;
       metaSession.classList.remove('hidden');
-    } else {
-      metaSession.classList.add('hidden');
-    }
+    } else { metaSession.classList.add('hidden'); }
 
-    // Lecture name
     if (lectureName) {
       metaLecture.querySelector('.meta-value').textContent = lectureName;
       metaLecture.classList.remove('hidden');
-    } else {
-      metaLecture.classList.add('hidden');
-    }
+    } else { metaLecture.classList.add('hidden'); }
 
     metadataEl.classList.remove('hidden');
   }
 
+  // Keypoints
   const keypointsList = document.getElementById('text-keypoints');
   keypointsList.innerHTML = result.keypoints
     .map(kp => `<li class="text-sm text-gray-600 flex gap-2"><span class="text-primary-500 mt-0.5">●</span><span>${escapeHtml(kp)}</span></li>`)
     .join('');
 
-  // Save to sessionStorage (now includes date & session)
+  // Save to sessionStorage
   try {
     sessionStorage.setItem('last_result', JSON.stringify({
-      lectureName: lectureName,
-      lectureDate: lectureDate,
-      sessionNumber: sessionNumber,
+      lectureName, lectureDate, sessionNumber,
       fileName: state.selectedFile?.name || '',
       timestamp: new Date().toISOString(),
       ...result,
     }));
-  } catch (e) { /* ignore quota errors */ }
+  } catch (e) { /* ignore */ }
 
-  // Show results with animation
   const resultsEl = document.getElementById('results-section');
   resultsEl.classList.remove('hidden');
   resultsEl.classList.add('animate-fade-in-up');
-
   switchTab('transcript');
 }
 
@@ -594,12 +471,9 @@ function finishProcessing(result) {
 // ============================================================
 function switchTab(tab) {
   state.currentTab = tab;
-  const tabs = ['transcript', 'summary', 'keypoints'];
-
-  tabs.forEach(t => {
+  ['transcript', 'summary', 'keypoints'].forEach(t => {
     const tabBtn = document.getElementById(`tab-${t}`);
     const content = document.getElementById(`content-${t}`);
-
     if (t === tab) {
       tabBtn.classList.add('tab-active');
       tabBtn.setAttribute('aria-selected', 'true');
@@ -617,14 +491,12 @@ function switchTab(tab) {
 // ============================================================
 function copyCurrentTab() {
   if (!state.result) return;
-
   let text = '';
   switch (state.currentTab) {
     case 'transcript': text = state.result.transcript; break;
     case 'summary': text = state.result.summary; break;
     case 'keypoints': text = state.result.keypoints.join('\n'); break;
   }
-
   navigator.clipboard.writeText(text).then(() => {
     const btn = document.getElementById('btn-copy');
     const orig = btn.innerHTML;
@@ -637,23 +509,19 @@ function copyCurrentTab() {
 
 function downloadNote() {
   if (!state.result) return;
-
   const lectureName = document.getElementById('input-lecture-name').value.trim();
   const lectureDate = state.lectureDate || '';
   const sessionNumber = state.sessionNumber || '';
   const now = new Date();
   const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   const timeStr = `${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
-
   const displayName = lectureName || '未設定';
   const displayDate = lectureDate ? lectureDate.replace(/-/g, '/') : '未設定';
   const displaySession = sessionNumber || '未設定';
   const fileName = lectureName
     ? `${lectureName}_${(lectureDate || dateStr).replace(/-/g,'')}.txt`
     : `ノート_${(lectureDate || dateStr).replace(/-/g,'')}_${timeStr}.txt`;
-
   const categoryLabel = state.result.category || '未分類';
-
   const content = [
     '========================================',
     '講義音声ノート',
@@ -663,21 +531,12 @@ function downloadNote() {
     `カテゴリー: ${categoryLabel}`,
     `作成日時: ${dateStr} ${timeStr.slice(0,2)}:${timeStr.slice(2)}`,
     `音声ファイル: ${state.selectedFile?.name || '不明'}`,
-    '========================================',
-    '',
-    '【全文文字起こし】',
-    state.result.transcript,
-    '',
-    '----------------------------------------',
-    '',
-    '【要約】',
-    state.result.summary,
-    '',
-    '----------------------------------------',
-    '',
-    '【要点】',
-    ...state.result.keypoints.map(kp => `・${kp}`),
-    '',
+    '========================================', '',
+    '【全文文字起こし】', state.result.transcript, '',
+    '----------------------------------------', '',
+    '【要約】', state.result.summary, '',
+    '----------------------------------------', '',
+    '【要点】', ...state.result.keypoints.map(kp => `・${kp}`), '',
     '========================================',
   ].join('\n');
 
@@ -690,7 +549,6 @@ function downloadNote() {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-
   showToast('ダウンロードを開始しました 📥');
 }
 
@@ -709,17 +567,14 @@ function hideError() {
 }
 
 function showToast(message) {
-  // Reuse error toast with success styling
   const toast = document.getElementById('error-toast');
   const inner = toast.querySelector('div');
   inner.className = 'bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3 shadow-lg toast';
   document.getElementById('error-message').textContent = message;
   document.getElementById('error-message').className = 'text-sm text-green-700 flex-1';
   toast.classList.remove('hidden');
-
   setTimeout(() => {
     toast.classList.add('hidden');
-    // Reset to error style
     inner.className = 'bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3 shadow-lg toast';
     document.getElementById('error-message').className = 'text-sm text-red-700 flex-1';
   }, 2500);
@@ -734,9 +589,6 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-/**
- * カテゴリーの表示情報（ラベルとCSSクラス）を返す
- */
 function getCategoryInfo(category) {
   const map = {
     'ゼミ':       { label: '📖 ゼミ',       className: 'cat-seminar' },
@@ -748,5 +600,3 @@ function getCategoryInfo(category) {
   };
   return map[category] || { label: `🏷️ ${category}`, className: 'cat-default' };
 }
-
-
