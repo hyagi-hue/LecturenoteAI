@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>講義音声ノートAI</title>
+  <meta name="description" content="大学の講義音声をAIで文字起こし・要約・要点抽出するWebアプリ">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Noto Sans JP"', 'Inter', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            primary: { 50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd', 400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a' },
+            accent: { 400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed' },
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <style>
+    /* Custom animations */
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes pulse-ring {
+      0% {
+        transform: scale(.8);
+        opacity: 1;
+      }
+
+      100% {
+        transform: scale(1.4);
+        opacity: 0;
+      }
+    }
+
+    @keyframes shimmer {
+      0% {
+        background-position: -200% 0;
+      }
+
+      100% {
+        background-position: 200% 0;
+      }
+    }
+
+    .animate-fade-in-up {
+      animation: fadeInUp .5s ease-out both;
+    }
+
+    .animate-fade-in-up-delay {
+      animation: fadeInUp .5s ease-out .15s both;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid rgba(59, 130, 246, .2);
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+
+    .pulse-ring {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 3px solid #3b82f6;
+      animation: pulse-ring 1.5s ease-out infinite;
+    }
+
+    .glass {
+      background: rgba(255, 255, 255, .7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    .tab-active {
+      color: #2563eb;
+      border-color: #2563eb;
+      background: rgba(37, 99, 235, .06);
+    }
+
+    .file-drop-zone {
+      transition: all .2s ease;
+    }
+
+    .file-drop-zone:hover,
+    .file-drop-zone.drag-over {
+      border-color: #3b82f6;
+      background: rgba(59, 130, 246, .04);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #3b82f6, #7c3aed);
+      transition: all .3s ease;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 25px rgba(59, 130, 246, .35);
+    }
+
+    .btn-primary:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .btn-primary:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+
+    .modal-backdrop {
+      background: rgba(0, 0, 0, .5);
+      backdrop-filter: blur(4px);
+    }
+
+    .toast {
+      animation: fadeInUp .3s ease-out both;
+    }
+
+    .copy-btn:active {
+      transform: scale(.95);
+    }
+
+    .shimmer {
+      background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+    }
+
+    /* Category Badge Styles */
+    .category-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.025em;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+    .category-badge:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+    }
+    .cat-seminar {
+      background: linear-gradient(135deg, #fef3c7, #fde68a);
+      color: #92400e;
+      border: 1px solid #fcd34d;
+    }
+    .cat-research {
+      background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+      color: #5b21b6;
+      border: 1px solid #c4b5fd;
+    }
+    .cat-class {
+      background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+      color: #1e40af;
+      border: 1px solid #93c5fd;
+    }
+    .cat-jobhunt {
+      background: linear-gradient(135deg, #fee2e2, #fecaca);
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+    }
+    .cat-intern {
+      background: linear-gradient(135deg, #fce7f3, #fbcfe8);
+      color: #9d174d;
+      border: 1px solid #f9a8d4;
+    }
+    .cat-private {
+      background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+      color: #065f46;
+      border: 1px solid #6ee7b7;
+    }
+    .cat-default {
+      background: linear-gradient(135deg, #f3f4f6, #e5e7eb);
+      color: #374151;
+      border: 1px solid #d1d5db;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-50 min-h-screen font-sans text-gray-800">
+
+  <!-- Header -->
+  <header class="sticky top-0 z-40 glass border-b border-gray-200/60">
+    <div class="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div
+          class="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center">
+          <span class="text-white text-sm">🎙</span>
+        </div>
+        <h1 class="text-base font-bold bg-gradient-to-r from-primary-700 to-accent-600 bg-clip-text text-transparent">
+          講義音声ノートAI</h1>
+      </div>
+      <button id="btn-open-settings" onclick="openSettings()"
+        class="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors"
+        aria-label="設定を開く">
+        <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Error Toast -->
+  <div id="error-toast" class="fixed top-16 left-4 right-4 z-50 hidden max-w-2xl mx-auto">
+    <div class="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3 shadow-lg toast">
+      <span class="text-red-500 mt-0.5">⚠️</span>
+      <p id="error-message" class="text-sm text-red-700 flex-1"></p>
+      <button onclick="hideError()" class="text-red-400 hover:text-red-600 transition-colors"
+        aria-label="閉じる">✕</button>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main class="max-w-2xl mx-auto px-4 py-6 pb-24">
+
+    <!-- Input Section -->
+    <section class="animate-fade-in-up">
+      <!-- Lecture Name -->
+      <div class="mb-4">
+        <label for="input-lecture-name" class="block text-sm font-semibold text-gray-700 mb-1.5">📚 講義名 <span
+            class="text-xs font-normal text-gray-400">（任意）</span></label>
+        <input type="text" id="input-lecture-name" placeholder="例：情報工学概論"
+          class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white focus:border-primary-400 focus:ring-2 focus:ring-primary-100 outline-none transition-all text-sm">
+      </div>
+
+      <!-- Date & Session Number -->
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div>
+          <label for="input-date" class="block text-sm font-semibold text-gray-700 mb-1.5">📅 日付</label>
+          <input type="date" id="input-date"
+            class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white focus:border-primary-400 focus:ring-2 focus:ring-primary-100 outline-none transition-all text-sm">
+        </div>
+        <div>
+          <label for="input-session" class="block text-sm font-semibold text-gray-700 mb-1.5">🔢 回数 <span
+              class="text-xs font-normal text-gray-400">（任意）</span></label>
+          <input type="text" id="input-session" placeholder="例：第5回"
+            class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white focus:border-primary-400 focus:ring-2 focus:ring-primary-100 outline-none transition-all text-sm">
+        </div>
+      </div>
+
+      <!-- Audio File Upload -->
+      <div class="mb-5">
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">🎧 音声ファイル</label>
+        <div id="file-drop-zone"
+          class="file-drop-zone border-2 border-dashed border-gray-200 rounded-xl p-6 text-center cursor-pointer"
+          onclick="document.getElementById('input-audio-file').click()">
+          <input type="file" id="input-audio-file"
+            accept="audio/wav,audio/mp3,audio/mpeg,audio/aiff,audio/aac,audio/ogg,audio/flac,.wav,.mp3,.aiff,.aac,.m4a,.ogg,.flac"
+            class="hidden" onchange="handleFileSelect(event)">
+          <!-- Empty state -->
+          <div id="file-empty-state">
+            <div class="w-12 h-12 mx-auto mb-3 rounded-full bg-primary-50 flex items-center justify-center">
+              <svg class="w-6 h-6 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+            </div>
+            <p class="text-sm text-gray-500 mb-1">タップしてファイルを選択</p>
+            <p class="text-xs text-gray-400">WAV, MP3, AAC, OGG, FLAC, AIFF</p>
+            <p class="text-xs text-amber-500 mt-1">⚡ 推奨：30分以内（15MB以下）</p>
+          </div>
+          <!-- File selected state -->
+          <div id="file-selected-state" class="hidden">
+            <div class="flex items-center gap-3 text-left">
+              <div class="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0">
+                <span class="text-lg">🎵</span>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p id="file-name" class="text-sm font-medium text-gray-800 truncate"></p>
+                <p id="file-info" class="text-xs text-gray-400"></p>
+              </div>
+              <button id="btn-clear-file" onclick="clearFile(event)"
+                class="w-8 h-8 rounded-full hover:bg-red-50 flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors"
+                aria-label="ファイルを削除">✕</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Execute Button -->
+      <button id="btn-execute" onclick="handleExecute()" disabled
+        class="btn-primary w-full py-3.5 rounded-xl text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-md">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+        <span>AIで処理を実行</span>
+      </button>
+    </section>
+
+    <!-- Processing Indicator -->
+    <section id="processing-section" class="hidden mt-8">
+      <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+        <div class="relative w-16 h-16 mx-auto mb-4">
+          <div class="pulse-ring"></div>
+          <div class="spinner mx-auto"></div>
+        </div>
+        <p id="processing-status" class="text-sm font-medium text-gray-700" aria-live="polite">音声ファイルを読み込み中...</p>
+        <p class="text-xs text-gray-400 mt-1">しばらくお待ちください</p>
+      </div>
+    </section>
+
+    <!-- Results Section -->
+    <section id="results-section" class="hidden mt-8 animate-fade-in-up">
+      <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <!-- Result Header with Category Badge -->
+        <div class="px-5 pt-4 pb-2 flex items-center justify-between">
+          <p class="text-xs font-medium text-gray-400 uppercase tracking-wider">解析結果</p>
+          <span id="category-badge" class="category-badge hidden"></span>
+        </div>
+        <!-- Result Metadata (Date, Session, Lecture) -->
+        <div id="result-metadata" class="hidden px-5 pb-3">
+          <div class="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            <span id="meta-date" class="inline-flex items-center gap-1 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1">📅 <span class="meta-value"></span></span>
+            <span id="meta-session" class="hidden inline-flex items-center gap-1 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1">🔢 <span class="meta-value"></span></span>
+            <span id="meta-lecture" class="hidden inline-flex items-center gap-1 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1">📚 <span class="meta-value"></span></span>
+          </div>
+        </div>
+        <!-- Tab Bar -->
+        <div class="flex border-b border-gray-100">
+          <button onclick="switchTab('transcript')" id="tab-transcript"
+            class="flex-1 py-3 text-xs font-semibold text-center border-b-2 border-transparent transition-all tab-active"
+            aria-selected="true">📝 全文</button>
+          <button onclick="switchTab('summary')" id="tab-summary"
+            class="flex-1 py-3 text-xs font-semibold text-center border-b-2 border-transparent text-gray-400 transition-all"
+            aria-selected="false">📋 要約</button>
+          <button onclick="switchTab('keypoints')" id="tab-keypoints"
+            class="flex-1 py-3 text-xs font-semibold text-center border-b-2 border-transparent text-gray-400 transition-all"
+            aria-selected="false">💡 要点</button>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="p-5">
+          <div id="content-transcript" class="tab-content">
+            <p class="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap" id="text-transcript">
+              （ここに全文文字起こしが表示されます）</p>
+          </div>
+          <div id="content-summary" class="tab-content hidden">
+            <p class="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap" id="text-summary">（ここに要約が表示されます）</p>
+          </div>
+          <div id="content-keypoints" class="tab-content hidden">
+            <ul class="space-y-2" id="text-keypoints">
+              <li class="text-sm text-gray-600">（ここに要点リストが表示されます）</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="border-t border-gray-100 p-4 flex gap-2">
+          <button id="btn-copy" onclick="copyCurrentTab()"
+            class="copy-btn flex-1 py-2.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 flex items-center justify-center gap-1.5 transition-all">
+            📋 コピー
+          </button>
+          <button id="btn-download" onclick="downloadNote()"
+            class="copy-btn flex-1 py-2.5 rounded-lg border border-primary-200 bg-primary-50 text-sm font-medium text-primary-700 hover:bg-primary-100 flex items-center justify-center gap-1.5 transition-all">
+            📥 ダウンロード
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="fixed inset-0 z-50 hidden">
+    <div class="modal-backdrop absolute inset-0" onclick="closeSettings()"></div>
+    <div
+      class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl max-h-[85vh] overflow-y-auto animate-fade-in-up shadow-2xl"
+      role="dialog" aria-label="設定">
+      <div class="p-6 max-w-2xl mx-auto">
+        <!-- Modal Handle -->
+        <div class="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5"></div>
+
+        <h2 class="text-lg font-bold text-gray-800 mb-4">⚙️ 設定</h2>
+
+        <!-- API Key Section -->
+        <div class="mb-6">
+          <label for="input-api-key" class="block text-sm font-semibold text-gray-700 mb-1.5">🔑 Gemini API キー</label>
+          <div class="flex gap-2">
+            <input type="password" id="input-api-key" placeholder="APIキーを入力"
+              class="flex-1 px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:border-primary-400 focus:ring-2 focus:ring-primary-100 outline-none text-sm transition-all"
+              autocomplete="off">
+            <button onclick="toggleKeyVisibility()" id="btn-toggle-key"
+              class="w-11 h-11 rounded-xl border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors"
+              aria-label="パスワード表示切替">
+              <span id="icon-eye">👁</span>
+            </button>
+          </div>
+          <div id="api-key-status" class="mt-2 flex items-center gap-1.5">
+            <!-- Status will be shown here -->
+          </div>
+        </div>
+
+        <!-- API Key Actions -->
+        <div class="flex gap-2 mb-6">
+          <button id="btn-save-key" onclick="saveApiKey()"
+            class="flex-1 py-3 rounded-xl bg-primary-600 text-white text-sm font-semibold hover:bg-primary-700 transition-colors">保存</button>
+          <button id="btn-test-key" onclick="testApiConnection()"
+            class="flex-1 py-3 rounded-xl border border-green-300 text-green-700 text-sm font-semibold hover:bg-green-50 transition-colors">🔌
+            接続テスト</button>
+          <button id="btn-delete-key" onclick="deleteApiKey()"
+            class="py-3 px-5 rounded-xl border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50 transition-colors">削除</button>
+        </div>
+
+        <!-- Guide -->
+        <div class="bg-blue-50 rounded-xl p-4 mb-4">
+          <p class="text-sm font-semibold text-blue-800 mb-2">📖 APIキーの取得方法</p>
+          <ol class="text-xs text-blue-700 space-y-1.5 list-decimal list-inside">
+            <li><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener"
+                class="underline hover:text-blue-900">Google AI Studio</a> にアクセス</li>
+            <li>Googleアカウントでログイン</li>
+            <li>「Get API key」→「Create API key」をクリック</li>
+            <li>生成されたキーをコピーして上欄に貼り付け</li>
+          </ol>
+        </div>
+
+        <div class="bg-amber-50 rounded-xl p-4">
+          <p class="text-xs text-amber-700">⚠️ APIキーはこのブラウザのローカルストレージに保存されます。共有端末での利用は推奨しません。</p>
+        </div>
+
+        <button onclick="closeSettings()"
+          class="w-full mt-5 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+
+</html>
