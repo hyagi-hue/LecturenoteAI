@@ -33,17 +33,11 @@ const state = {
 };
 
 // ============================================================
-// Init
+// Init — all event binding via addEventListener (no inline handlers)
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
   updateApiKeyStatus();
   setupDragAndDrop();
-
-  // Attach settings button listener
-  const settingsBtn = document.getElementById('settings-btn');
-  if (settingsBtn) {
-    settingsBtn.addEventListener('click', openSettings);
-  }
 
   // Set default date to today
   const dateInput = document.getElementById('input-date');
@@ -54,6 +48,39 @@ document.addEventListener('DOMContentLoaded', () => {
     const dd = String(today.getDate()).padStart(2, '0');
     dateInput.value = `${yyyy}-${mm}-${dd}`;
   }
+
+  // --- Header ---
+  document.getElementById('settings-btn').addEventListener('click', openSettings);
+
+  // --- Error toast ---
+  document.getElementById('btn-hide-error').addEventListener('click', hideError);
+
+  // --- File input ---
+  document.getElementById('file-drop-zone').addEventListener('click', () => {
+    document.getElementById('input-audio-file').click();
+  });
+  document.getElementById('input-audio-file').addEventListener('change', handleFileSelect);
+  document.getElementById('btn-clear-file').addEventListener('click', (e) => clearFile(e));
+
+  // --- Execute ---
+  document.getElementById('btn-execute').addEventListener('click', handleExecute);
+
+  // --- Result tabs ---
+  document.getElementById('tab-transcript').addEventListener('click', () => switchTab('transcript'));
+  document.getElementById('tab-summary').addEventListener('click', () => switchTab('summary'));
+  document.getElementById('tab-keypoints').addEventListener('click', () => switchTab('keypoints'));
+
+  // --- Result actions ---
+  document.getElementById('btn-copy').addEventListener('click', copyCurrentTab);
+  document.getElementById('btn-download').addEventListener('click', downloadNote);
+
+  // --- Settings modal ---
+  document.getElementById('settings-backdrop').addEventListener('click', closeSettings);
+  document.getElementById('btn-close-settings').addEventListener('click', closeSettings);
+  document.getElementById('btn-toggle-key').addEventListener('click', toggleKeyVisibility);
+  document.getElementById('btn-save-key').addEventListener('click', saveApiKey);
+  document.getElementById('btn-test-key').addEventListener('click', testApiConnection);
+  document.getElementById('btn-delete-key').addEventListener('click', deleteApiKey);
 
   // Auto-show settings if no API key
   if (!getApiKey()) {
@@ -722,20 +749,4 @@ function getCategoryInfo(category) {
   return map[category] || { label: `🏷️ ${category}`, className: 'cat-default' };
 }
 
-// ============================================================
-// Global Exports — expose functions for inline HTML handlers
-// (onclick="...", onchange="...", etc.)
-// ============================================================
-window.openSettings = openSettings;
-window.closeSettings = closeSettings;
-window.handleFileSelect = handleFileSelect;
-window.clearFile = clearFile;
-window.handleExecute = handleExecute;
-window.switchTab = switchTab;
-window.copyCurrentTab = copyCurrentTab;
-window.downloadNote = downloadNote;
-window.hideError = hideError;
-window.toggleKeyVisibility = toggleKeyVisibility;
-window.saveApiKey = saveApiKey;
-window.deleteApiKey = deleteApiKey;
-window.testApiConnection = testApiConnection;
+
